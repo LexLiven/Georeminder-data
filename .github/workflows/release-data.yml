@@ -1,0 +1,36 @@
+name: Publish pinned timezone data
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract official data and verify checksum
+        run: |
+          python3 - <<'PY'
+          import urllib.request, zipfile, io, hashlib, pathlib
+          url='https://repo.maven.apache.org/maven2/us/dustinj/timezonemap/timezonemap-data/4.5/timezonemap-data-4.5.jar'
+          with urllib.request.urlopen(url, timeout=60) as response:
+              jar=response.read(40000000)
+          name='timezonemap-4.5-2020d.tar.zstd'
+          data=zipfile.ZipFile(io.BytesIO(jar)).read(name)
+          assert len(data)==25603336
+          digest=hashlib.sha256(data).hexdigest()
+          assert digest=='f0a3e68af026fc13d9c50abcf0f3418c1114310f259a64de59e8d3fd7142736c'
+          pathlib.Path(name).write_bytes(data)
+          pathlib.Path('SHA256SUMS').write_text(digest+'  '+name+'\n')
+          PY
+      - name: Publish immutable versioned asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view tz-2020d-v1 >/dev/null 2>&1; then
+            echo 'Release already exists; it will not be overwritten.'
+          else
+            gh release create tz-2020d-v1 timezonemap-4.5-2020d.tar.zstd SHA256SUMS DATA_LICENSE CODE_LICENSE --title 'Offline timezone boundaries 2020d (TimeZoneMap 4.5)' --notes-file README.md
+          fi
